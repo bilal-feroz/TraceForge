@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+:root {
+  --graphite-950: #090b0d;
+  --graphite-900: #0d1114;
+  --graphite-850: #11171a;
+  --graphite-800: #171e22;
+  --graphite-700: #253036;
+  --steel-500: #6d7c84;
+  --steel-300: #a7b3b9;
+  --paper: #edf2f3;
+  --ember: #ff7a32;
+  --ember-soft: #ffad7d;
+  --cyan: #39d9e6;
+  --green: #49d17d;
+  --red: #ff5c61;
+  --amber: #f3bd4e;
+  --focus: #bceef3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--graphite-950);
+  color: var(--paper);
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(rgba(57, 217, 230, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57, 217, 230, 0.018) 1px, transparent 1px),
+    radial-gradient(circle at 82% 4%, rgba(255, 122, 50, 0.12), transparent 28rem),
+    var(--graphite-950);
+  background-size:
+    36px 36px,
+    36px 36px,
+    auto;
+  font-family:
+    "IBM Plex Sans", "Segoe UI", Inter, system-ui, -apple-system, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+::selection {
+  color: #081012;
+  background: var(--cyan);
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.65rem 0.9rem;
+  color: var(--graphite-950);
+  background: var(--focus);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.mono {
+  font-family: "IBM Plex Mono", "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  color: var(--steel-300);
+  font-family: "IBM Plex Mono", "Cascadia Code", monospace;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.panel {
+  border: 1px solid rgba(167, 179, 185, 0.16);
+  background: rgba(13, 17, 20, 0.92);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.2);
+}
+
+.panel-inset {
+  border: 1px solid rgba(167, 179, 185, 0.12);
+  background: rgba(9, 11, 13, 0.78);
+}
+
+.status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 14px currentColor;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.forge-mark {
+  filter: drop-shadow(0 0 16px rgba(255, 122, 50, 0.32));
+}
+
+.ember-line {
+  background: linear-gradient(90deg, transparent, var(--ember), transparent);
+}
+
+@media (max-width: 960px) {
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .metric-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .live-pulse {
+    animation: live-pulse 1.8s ease-in-out infinite;
+  }
+
+  @keyframes live-pulse {
+    0%,
+    100% {
+      opacity: 0.45;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+}
+

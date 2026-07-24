@@ -1,0 +1,12 @@
+{
+  "name": "traceforge",
+  "private": true,
+  "packageManager": "pnpm@11.7.0",
+  "scripts": {
+    "dev": "pnpm --filter @traceforge/web dev",
+    "build": "pnpm --filter @traceforge/web build",
+    "lint": "pnpm --filter @traceforge/web lint",
+    "typecheck": "pnpm --filter @traceforge/web typecheck"
+  }
+}
+
