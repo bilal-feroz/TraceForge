@@ -9,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", enable_decoding=False)
 
     data_dir: Path = Field(default=Path(".traceforge"), alias="TRACEFORGE_DATA_DIR")
     allowed_repo_roots: list[Path] = Field(
