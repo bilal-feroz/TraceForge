@@ -1,0 +1,50 @@
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TRACEFORGE_DATA_DIR: /data
+      TRACEFORGE_ALLOWED_REPO_ROOTS: /workspace/fixtures
+      TRACEFORGE_WEB_ORIGIN: http://127.0.0.1:3000
+    ports:
+      - "8787:8787"
+    volumes:
+      - traceforge-data:/data
+      - ./fixtures:/workspace/fixtures
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_TRACEFORGE_API_URL: http://127.0.0.1:8787
+    environment:
+      NEXT_PUBLIC_TRACEFORGE_API_URL: http://127.0.0.1:8787
+    depends_on:
+      - orchestrator
+    ports:
+      - "3000:3000"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+    profiles: ["observability"]
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      SIGNOZ_OTLP_BASE_ENDPOINT: ${SIGNOZ_OTLP_BASE_ENDPOINT:-}
+      SIGNOZ_INGESTION_KEY: ${SIGNOZ_INGESTION_KEY:-}
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "13133:13133"
+    volumes:
+      - ./infra/docker/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+
+volumes:
+  traceforge-data:

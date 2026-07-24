@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "label": "measured",
+  "measured_at": "2026-07-24",
+  "run_id": "bd396850-960e-405c-ab92-3bb9ceaf5c7d",
+  "scenario": "lock",
+  "profile": "quick",
+  "platform": "windows/amd64",
+  "k6_version": "2.1.0",
+  "endpoint": "POST /api/visits",
+  "script_digest": "2a22c659728656c6fac0e9d0012ac3dafe565253730b433f43617805913a89e0",
+  "baseline": {
+    "requests": 1329,
+    "rate_per_second": 83.04547567748611,
+    "p95_ms": 76.33689999999999,
+    "p99_ms": 114.40108000000001,
+    "failure_rate": 0.0,
+    "checks_failed": 0,
+    "duration_seconds": 16.072494,
+    "threshold_failures": []
+  },
+  "candidate": {
+    "requests": 1288,
+    "rate_per_second": 80.14233078836634,
+    "p95_ms": 126.080345,
+    "p99_ms": 153.091164,
+    "failure_rate": 0.9107142857142857,
+    "checks_failed": 1173,
+    "duration_seconds": 16.140633,
+    "threshold_failures": [
+      "http_req_failed: rate<0.05",
+      "checks: rate>0.95"
+    ]
+  },
+  "signoz_available": false,
+  "terminal_state": "NEEDS_REVIEW",
+  "verdict_reason": "SigNoz verification unavailable; client load was measured but server-side evidence could not be confirmed.",
+  "notes": [
+    "This is one local smoke run, not a statistical performance claim.",
+    "Raw k6 output is retained in the local ignored run directory."
+  ]
+}
