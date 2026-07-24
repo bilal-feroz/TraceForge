@@ -60,6 +60,7 @@ class TargetProcess:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._log_handle = self.log_path.open("wb")
         env = os.environ.copy()
+        env.update(self.settings.telemetry_environment())
         env.update(self.environment)
         self.process = subprocess.Popen(  # noqa: S603 - executable and flags are allowlisted
             self.command,

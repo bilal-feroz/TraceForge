@@ -17,6 +17,7 @@ from traceforge.patching import PatchError
 from traceforge.process import run_process
 from traceforge.report import render_report
 from traceforge.settings import get_settings
+from traceforge.telemetry import configure_telemetry
 
 app = typer.Typer(
     name="traceforge",
@@ -45,7 +46,14 @@ def output(value: Any, *, json_mode: bool) -> None:
 
 
 def engine() -> RunEngine:
-    return RunEngine(get_settings())
+    settings = get_settings()
+    configure_telemetry(
+        settings.service_name,
+        endpoint=settings.otlp_endpoint,
+        header_value=settings.otlp_headers,
+        ingestion_key=settings.signoz_ingestion_key,
+    )
+    return RunEngine(settings)
 
 
 @app.command()
@@ -211,6 +219,12 @@ def demo(scenario: str, *, profile: Profile, port: int, json_mode: bool) -> None
             "trusted_local_mode": True,
             "allowed_repo_roots": [repo.parent.resolve()],
         }
+    )
+    configure_telemetry(
+        settings.service_name,
+        endpoint=settings.otlp_endpoint,
+        header_value=settings.otlp_headers,
+        ingestion_key=settings.signoz_ingestion_key,
     )
     run_engine = RunEngine(settings)
     run = run_engine.create(

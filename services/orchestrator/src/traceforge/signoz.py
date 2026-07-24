@@ -50,6 +50,34 @@ class SigNozCapabilityError(SigNozUnavailable):
     pass
 
 
+def _connection_error(exc: BaseException) -> str:
+    """Classify a transport failure without echoing credentials or private URLs."""
+    nested = getattr(exc, "exceptions", ())
+    detail = " ".join(_connection_error_text(item) for item in nested) or str(exc)
+    lowered = detail.lower()
+    if "400" in lowered and "x-signoz-url" in lowered:
+        return (
+            "SigNoz MCP configuration rejected X-SigNoz-URL; use the full "
+            "https:// instance origin with no dashboard path"
+        )
+    if "401" in lowered or "unauthorized" in lowered:
+        return "SigNoz MCP authentication failed; verify the active service-account API key"
+    if "403" in lowered or "forbidden" in lowered:
+        return "SigNoz MCP permission denied; verify the service account has telemetry read access"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "SigNoz MCP connection timed out"
+    if any(marker in lowered for marker in ("connect", "dns", "ssl", "tls")):
+        return "SigNoz MCP network or TLS connection failed"
+    return "SigNoz MCP connection failed during initialization or tool discovery"
+
+
+def _connection_error_text(exc: BaseException) -> str:
+    nested = getattr(exc, "exceptions", ())
+    if nested:
+        return " ".join(_connection_error_text(item) for item in nested)
+    return str(exc)
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
@@ -83,20 +111,48 @@ def _summarize(value: Any) -> str:
     return str(value)[:240]
 
 
-def _rows(value: Any) -> list[dict[str, Any]]:
-    if isinstance(value, list):
-        return [item for item in value if isinstance(item, dict)]
-    if not isinstance(value, dict):
-        return []
-    for key in ("data", "rows", "results", "items", "spans", "logs"):
+def _nested_rows(value: dict[str, Any]) -> list[dict[str, Any]]:
+    for key in ("rows", "spans", "logs", "items", "results", "data"):
         nested = value.get(key)
-        if isinstance(nested, list):
-            return [item for item in nested if isinstance(item, dict)]
-        if isinstance(nested, dict):
+        if isinstance(nested, dict | list):
             found = _rows(nested)
             if found:
                 return found
     return []
+
+
+def _rows(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        found: list[dict[str, Any]] = []
+        items = [item for item in value if isinstance(item, dict)]
+        for item in items:
+            found.extend(_nested_rows(item))
+        return found or items
+    if isinstance(value, dict):
+        return _nested_rows(value)
+    return []
+
+
+def _row_data(row: dict[str, Any]) -> dict[str, Any]:
+    nested = row.get("data")
+    if not isinstance(nested, dict):
+        return row
+    payload = dict(nested)
+    if "timestamp" not in payload and row.get("timestamp") is not None:
+        payload["timestamp"] = row["timestamp"]
+    return payload
+
+
+def _contains_correlation(value: Any, run_id: str) -> bool:
+    if isinstance(value, dict):
+        return any(
+            (key == "traceforge.run.id" and item == run_id)
+            or _contains_correlation(item, run_id)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_correlation(item, run_id) for item in value)
+    return False
 
 
 def _escape_filter(value: str) -> str:
@@ -192,22 +248,27 @@ class SigNozMCPClient:
     async def connect_and_discover(self) -> list[str]:
         url, headers = self._configured()
         timeout = httpx.Timeout(self.settings.mcp_timeout_seconds)
-        async with httpx.AsyncClient(
-            headers=headers, timeout=timeout, follow_redirects=True
-        ) as http_client:
-            async with streamable_http_client(url, http_client=http_client) as streams:
-                read, write, _ = streams
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    response = await session.list_tools()
-                    self.tools = {
-                        tool.name: (
-                            getattr(tool, "inputSchema", None)
-                            or getattr(tool, "input_schema", None)
-                            or {}
-                        )
-                        for tool in response.tools
-                    }
+        try:
+            async with httpx.AsyncClient(
+                headers=headers, timeout=timeout, follow_redirects=True
+            ) as http_client:
+                async with streamable_http_client(url, http_client=http_client) as streams:
+                    read, write, _ = streams
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        response = await session.list_tools()
+                        self.tools = {
+                            tool.name: (
+                                getattr(tool, "inputSchema", None)
+                                or getattr(tool, "input_schema", None)
+                                or {}
+                            )
+                            for tool in response.tools
+                        }
+        except SigNozUnavailable:
+            raise
+        except Exception as exc:
+            raise SigNozUnavailable(_connection_error(exc)) from None
         return sorted(self.tools)
 
     def validate_capabilities(self) -> None:
@@ -418,8 +479,15 @@ class SigNozMCPClient:
                         ),
                     )
 
+        log_rows = _rows(logs_response)
+        if not any(_contains_correlation(row, run_id) for row in log_rows):
+            raise SigNozUnavailable(
+                "returned telemetry is missing the exact traceforge.run.id correlation attribute"
+            )
         traces = [self._trace_evidence(row) for row in trace_rows]
-        logs = [self._log_evidence(row) for row in _rows(logs_response)]
+        if not any(item.trace_id for item in traces):
+            raise SigNozUnavailable("returned trace rows do not contain trace IDs")
+        logs = [self._log_evidence(row) for row in log_rows]
         return TelemetryEvidence(
             run_id=run_id,
             service_name=service_name,
@@ -451,6 +519,7 @@ class SigNozMCPClient:
 
     @staticmethod
     def _trace_evidence(row: dict[str, Any]) -> TraceEvidence:
+        row = _row_data(row)
         duration_nano = row.get("duration_nano", row.get("durationNano", 0))
         try:
             duration_ms = float(duration_nano) / 1_000_000
@@ -461,24 +530,30 @@ class SigNozMCPClient:
             span_id=str(row.get("span_id", row.get("spanId", ""))) or None,
             operation=str(row.get("name", row.get("operation", "unknown"))),
             duration_ms=max(0, duration_ms),
-            status=str(row.get("status", row.get("has_error", "unknown"))),
+            status=str(row.get("status_code_string", row.get("has_error", "unknown"))),
             attributes=redact(row),
         )
 
     @staticmethod
     def _log_evidence(row: dict[str, Any]) -> LogEvidence:
+        row = _row_data(row)
         raw_timestamp = row.get("timestamp", row.get("time", utc_now().isoformat()))
         try:
             if isinstance(raw_timestamp, int | float):
-                divisor = 1_000 if raw_timestamp > 10_000_000_000 else 1
-                timestamp = datetime.fromtimestamp(raw_timestamp / divisor).astimezone()
+                if raw_timestamp > 100_000_000_000_000_000:
+                    raw_timestamp /= 1_000_000_000
+                elif raw_timestamp > 100_000_000_000:
+                    raw_timestamp /= 1_000
+                timestamp = datetime.fromtimestamp(raw_timestamp).astimezone()
             else:
                 timestamp = datetime.fromisoformat(str(raw_timestamp).replace("Z", "+00:00"))
         except (ValueError, OSError):
             timestamp = utc_now()
+        raw_body = row.get("body", row.get("message", ""))
+        body = canonical_json(raw_body) if isinstance(raw_body, dict | list) else str(raw_body)
         return LogEvidence(
             timestamp=timestamp,
-            body=str(row.get("body", row.get("message", "")))[:4_000],
+            body=body[:4_000],
             severity=str(row.get("severity_text", row.get("severity", "UNSPECIFIED"))),
             trace_id=str(row.get("trace_id", row.get("traceId", ""))) or None,
             attributes=redact(row),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -466,7 +467,7 @@ class RunEngine:
             return False
         try:
             run_process(
-                ["python", "-m", "pytest", "-q"],
+                [sys.executable, "-m", "pytest", "-q"],
                 cwd=path,
                 timeout_seconds=180,
                 max_output_bytes=self.settings.max_subprocess_output_bytes,

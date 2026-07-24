@@ -16,8 +16,9 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 _configured = False
 
 
-def _headers() -> dict[str, str]:
-    value = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
+def _headers(value: str | None = None, ingestion_key: str | None = None) -> dict[str, str]:
+    if value is None:
+        value = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
     headers: dict[str, str] = {}
     for item in value.split(","):
         if "=" not in item:
@@ -25,17 +26,28 @@ def _headers() -> dict[str, str]:
         key, raw = item.split("=", 1)
         if key.strip():
             headers[key.strip()] = raw.strip()
-    ingestion_key = os.getenv("SIGNOZ_INGESTION_KEY")
+    ingestion_key = ingestion_key or os.getenv("SIGNOZ_INGESTION_KEY")
     if ingestion_key and "signoz-ingestion-key" not in headers:
         headers["signoz-ingestion-key"] = ingestion_key
     return headers
 
 
-def configure_telemetry(service_name: str, service_version: str = "0.1.0") -> bool:
+def _signal_endpoint(base_endpoint: str, signal: str) -> str:
+    return f"{base_endpoint.rstrip('/')}/v1/{signal}"
+
+
+def configure_telemetry(
+    service_name: str,
+    service_version: str = "0.1.0",
+    *,
+    endpoint: str | None = None,
+    header_value: str | None = None,
+    ingestion_key: str | None = None,
+) -> bool:
     global _configured
     if _configured:
         return True
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:
         return False
 
@@ -50,11 +62,16 @@ def configure_telemetry(service_name: str, service_version: str = "0.1.0") -> bo
         }
     )
     tracer_provider = TracerProvider(resource=resource)
-    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(headers=_headers())))
+    headers = _headers(header_value, ingestion_key)
+    tracer_provider.add_span_processor(
+        BatchSpanProcessor(
+            OTLPSpanExporter(endpoint=_signal_endpoint(endpoint, "traces"), headers=headers)
+        )
+    )
     trace.set_tracer_provider(tracer_provider)
 
     metric_reader = PeriodicExportingMetricReader(
-        OTLPMetricExporter(headers=_headers()),
+        OTLPMetricExporter(endpoint=_signal_endpoint(endpoint, "metrics"), headers=headers),
         export_interval_millis=10_000,
     )
     metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[metric_reader]))

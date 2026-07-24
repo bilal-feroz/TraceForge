@@ -42,7 +42,7 @@ packages = ["services/orchestrator/src/traceforge"]
 [tool.pytest.ini_options]
 addopts = "-q --strict-markers"
 testpaths = ["tests"]
-pythonpath = ["services/orchestrator/src", "services/demo-target"]
+pythonpath = [".", "services/orchestrator/src", "services/demo-target"]
 asyncio_mode = "auto"
 markers = [
   "integration: local integration tests",
@@ -68,6 +68,13 @@ strict = true
 packages = ["traceforge"]
 mypy_path = ["services/orchestrator/src"]
 plugins = ["pydantic.mypy"]
+exclude = [
+  "fixtures/generated-demo-repositories/",
+  "pytest-cache-files-.*/",
+  "services/demo-target/",
+  "scripts/",
+  "tests/",
+]
 
 [[tool.mypy.overrides]]
 module = ["mcp.*", "opentelemetry.*"]

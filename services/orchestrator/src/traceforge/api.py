@@ -31,7 +31,12 @@ tasks: dict[str, asyncio.Task[Any]] = {}
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_structured_logging()
-    configure_telemetry(settings.service_name)
+    configure_telemetry(
+        settings.service_name,
+        endpoint=settings.otlp_endpoint,
+        header_value=settings.otlp_headers,
+        ingestion_key=settings.signoz_ingestion_key,
+    )
     yield
     for task in list(tasks.values()):
         if not task.done():

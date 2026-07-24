@@ -84,6 +84,7 @@ def controlled_server() -> FastMCP[Any]:
                     "body": "request.complete",
                     "severity_text": "INFO",
                     "traceId": "a" * 32,
+                    "attributes_string": {"traceforge.run.id": "controlled-run"},
                 }
             ]
         }

@@ -67,6 +67,21 @@ class Settings(BaseSettings):
     def telemetry_ingestion_configured(self) -> bool:
         return bool(self.otlp_endpoint and (self.otlp_headers or self.signoz_ingestion_key))
 
+    def telemetry_environment(self) -> dict[str, str]:
+        """Return the OTLP environment required by a managed target process."""
+        if not self.otlp_endpoint:
+            return {}
+        headers = self.otlp_headers
+        if not headers and self.signoz_ingestion_key:
+            headers = f"signoz-ingestion-key={self.signoz_ingestion_key}"
+        if not headers:
+            return {}
+        return {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": self.otlp_endpoint,
+            "OTEL_EXPORTER_OTLP_HEADERS": headers,
+            "OTEL_EXPORTER_OTLP_PROTOCOL": self.otlp_protocol,
+        }
+
 
 @lru_cache
 def get_settings() -> Settings:
