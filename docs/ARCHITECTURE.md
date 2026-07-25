@@ -192,10 +192,29 @@ flowchart TB
 | `traceforge.regression` | Numeric deltas, slopes, deterministic classification | Regression assessment |
 | `traceforge.patching` / `worktree` | Reversion proposal, audit, isolated proof | Diff, audit, test/load proof |
 | `traceforge.ledger` | Tamper-evident transition record | Per-run JSONL hash chain |
+| `traceforge.release_proof` | Read-only projection of a run into a presentation contract | None |
 | `apps/web` | API-backed live UI with partial/unavailable states | None |
 
 SQLite stores current run state and transition idempotency records. Large raw outputs remain as
 separate files under `.traceforge/runs/<run-id>/`; the database stores paths and typed summaries.
+
+## Release-proof projection
+
+`traceforge.release_proof` derives the presentation contract that the Release Proof page consumes. It
+adds no new measurements. It reads the persisted run, intersects each retrieved span and log timestamp
+with the exact phase window so evidence is attributed to the phase that produced it, and attaches
+per-metric caveats where a raw delta would mislead — a latency improvement that accompanies a high
+failure rate, or a throughput drop that the latency change alone predicts. Interpretation notes are
+generated from the same persisted values, so the UI never computes a number the backend has not
+recorded.
+
+## Self-observability
+
+The orchestrator exports its own workflow to the same SigNoz instance under service
+`traceforge-orchestrator`. Each stage emits a span named after the stage, each SigNoz MCP tool
+invocation emits a `signoz.mcp.call` span carrying `traceforge.mcp.tool` and success state, and all of
+them carry `traceforge.run.id`, so one run's orchestration is isolatable. Target telemetry stays on
+its own service name, which keeps the agent's spans from polluting the evidence it queries.
 
 ## Verdict invariants
 

@@ -98,6 +98,67 @@ The investigation retrieves:
 
 The required metric name is `traceforge.demo.request.duration`.
 
+TraceForge's own orchestration is queryable on `traceforge-orchestrator`. A completed lock run emits
+`repository.inspect`, `change.read`, `endpoint.extract`, `load.plan.generate`, `k6.script.render`,
+`k6.script.validate`, `k6.execute` (once per phase), `signoz.preflight`, `telemetry.correlate`,
+`regression.classify`, `diagnosis.generate`, `patch.generate`, `patch.audit`, `verification.execute`,
+`verdict.publish`, and one `signoz.mcp.call` span per MCP tool invocation. All of them carry
+`traceforge.run.id`, so a single run can be isolated in SigNoz.
+
+## Native release-proof dashboard
+
+TraceForge ships the definition of a native SigNoz dashboard named **TraceForge — Release Proof** at
+[`infra/signoz/traceforge-release-proof.dashboard.json`](../infra/signoz/traceforge-release-proof.dashboard.json).
+It has three variables (`run_id`, `phase`, `service_name`) and sixteen panels:
+
+| Panel | Type | Source signal |
+| --- | --- | --- |
+| Requests observed server-side | value | traces |
+| Error spans | value | traces |
+| `"database is locked"` logs | value | logs |
+| Server-side span P95 | value | traces |
+| Request count by phase | graph | traces |
+| Error rate by phase | bar | traces |
+| Span duration P50 / P95 / P99 | graph | traces |
+| HTTP status distribution | pie | traces |
+| Lock-error logs by phase | bar | logs |
+| Slowest operations | table | traces |
+| Correlated traces | list | traces |
+| Correlated logs | list | logs |
+| TraceForge state-machine stage duration | table | traces |
+| SigNoz MCP tool calls | bar | traces |
+| SigNoz MCP tool failures | bar | traces |
+| TraceForge stage failures | bar | traces |
+
+Every query is built from attributes TraceForge actually emits and that were confirmed present in
+the live instance through `signoz_get_field_keys` and `signoz_get_field_values`: `traceforge.run.id`,
+`traceforge.phase`, `traceforge.mcp.tool`, `traceforge.success`, `service.name`, `http.status_code`,
+and span name. The panels are trace- and log-derived on purpose; the only custom metric series the
+target emits is `traceforge.demo.request.duration`, so latency panels read span durations rather than
+inventing metric names.
+
+Publish it with:
+
+```bash
+uv run traceforge dashboard publish --dry-run   # validate the definition locally
+uv run traceforge dashboard publish             # create or replace it in SigNoz through MCP
+```
+
+The command discovers the dashboard tools at runtime, looks the title up through
+`signoz_list_dashboards`, and then calls `signoz_create_dashboard` or `signoz_update_dashboard`, so
+republishing is idempotent rather than duplicating panels.
+
+**Measured permission limitation.** The hosted SigNoz MCP server does expose the write tools
+(`signoz_create_dashboard`, `signoz_update_dashboard`, `signoz_delete_dashboard`,
+`signoz_import_dashboard`), but a read-only service-account key is refused by the SigNoz API with
+`403: only editors/admins can access this resource`. That is the result we get with the least-privilege
+key this project recommends, and the CLI reports it verbatim instead of pretending the dashboard was
+created. Two supported paths:
+
+1. Run `uv run traceforge dashboard publish` with an editor or admin API key.
+2. Import the JSON by hand: **Dashboards → New dashboard → Import JSON**, paste the file contents,
+   then set `run_id` to the run you want to inspect.
+
 ## Failure semantics
 
 TraceForge uses bounded retries for transient MCP transport errors and bounded polling for delayed
