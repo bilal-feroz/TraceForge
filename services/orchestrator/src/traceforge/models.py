@@ -298,6 +298,8 @@ class RegressionAssessment(StrictModel):
     latency_p99: NumericDelta
     error_rate: NumericDelta
     throughput: NumericDelta
+    implied_concurrency: NumericDelta | None = None
+    throughput_explained_by_latency: bool | None = None
     latency_slope_ms_per_window: float | None
     server_client_latency_gap_ms: float | None
     threshold_violations: list[str]

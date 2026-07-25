@@ -20,6 +20,8 @@ def result(
     failures: float,
     rate: float,
     windows: list[float] | None = None,
+    p50: float | None = None,
+    count: int = 200,
 ) -> K6RunResult:
     started = datetime.now(UTC)
     return K6RunResult(
@@ -31,9 +33,9 @@ def result(
         ),
         exit_code=0,
         stats=MetricStats(
-            count=200,
+            count=count,
             rate=rate,
-            p50_ms=p95 / 2,
+            p50_ms=p95 / 2 if p50 is None else p50,
             p90_ms=p95 * 0.8,
             p95_ms=p95,
             p99_ms=p95 * 1.5,
@@ -109,3 +111,26 @@ def test_no_regression_control() -> None:
         candidate_evidence=evidence(Phase.CANDIDATE),
     )
     assert assessment.classification == RegressionClassification.NO_REGRESSION
+
+
+def test_throughput_drop_explained_by_latency_is_not_a_regression() -> None:
+    """Measured control-scenario numbers: the rate fell only because latency rose."""
+    assessment = assess_regression(
+        result(Phase.BASELINE, p95=82.41, p50=28.18, count=25608, failures=0, rate=441.30),
+        result(Phase.CANDIDATE, p95=124.04, p50=45.14, count=16259, failures=0, rate=280.30),
+        candidate_evidence=evidence(Phase.CANDIDATE),
+    )
+    assert assessment.classification == RegressionClassification.NO_REGRESSION
+    assert assessment.throughput_explained_by_latency is True
+    assert assessment.implied_concurrency is not None
+    assert any("client concurrency" in reason for reason in assessment.deterministic_reasons)
+
+
+def test_throughput_drop_beyond_latency_still_classifies_a_regression() -> None:
+    assessment = assess_regression(
+        result(Phase.BASELINE, p95=80, p50=40, failures=0, rate=400),
+        result(Phase.CANDIDATE, p95=80, p50=40, failures=0, rate=200),
+        candidate_evidence=evidence(Phase.CANDIDATE),
+    )
+    assert assessment.classification == RegressionClassification.THROUGHPUT_REGRESSION
+    assert assessment.throughput_explained_by_latency is False

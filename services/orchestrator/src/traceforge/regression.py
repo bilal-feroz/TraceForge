@@ -6,6 +6,7 @@ from statistics import fmean
 
 from traceforge.models import (
     K6RunResult,
+    MetricStats,
     NumericDelta,
     RegressionAssessment,
     RegressionClassification,
@@ -21,6 +22,26 @@ def numeric_delta(baseline: float, candidate: float) -> NumericDelta:
         absolute=candidate - baseline,
         relative_percent=relative,
     )
+
+
+def implied_concurrency(stats: MetricStats) -> float | None:
+    """Average in-flight requests implied by Little's law: completions x latency / duration."""
+    if stats.count <= 0 or stats.p50_ms <= 0 or stats.duration_seconds <= 0:
+        return None
+    return (stats.count * (stats.p50_ms / 1_000)) / stats.duration_seconds
+
+
+def latency_explained_rate(baseline: MetricStats, candidate: MetricStats) -> float | None:
+    """Throughput the candidate must reach if only its latency changed.
+
+    The k6 plan is a closed-loop ramping-VUs schedule, so both phases run the same
+    concurrency curve and throughput is a dependent variable of latency. A rate drop
+    that matches the latency rise therefore repeats the latency comparison instead of
+    adding an independent signal.
+    """
+    if baseline.p50_ms <= 0 or candidate.p50_ms <= 0:
+        return None
+    return baseline.rate * (baseline.p50_ms / candidate.p50_ms)
 
 
 def latency_slope(values: list[float]) -> float | None:
@@ -95,7 +116,17 @@ def assess_regression(
     latency_regression = (
         p95.absolute >= 50 and (p95.relative_percent or 0) >= 20 and candidate.stats.p95_ms >= 100
     )
-    throughput_regression = throughput.absolute < 0 and (throughput.relative_percent or 0) <= -20
+    expected_rate = latency_explained_rate(baseline.stats, candidate.stats)
+    throughput_explained = expected_rate is not None and candidate.stats.rate >= expected_rate * 0.8
+    throughput_dropped = throughput.absolute < 0 and (throughput.relative_percent or 0) <= -20
+    throughput_regression = throughput_dropped and not throughput_explained
+    baseline_concurrency = implied_concurrency(baseline.stats)
+    candidate_concurrency = implied_concurrency(candidate.stats)
+    concurrency = (
+        numeric_delta(baseline_concurrency, candidate_concurrency)
+        if baseline_concurrency is not None and candidate_concurrency is not None
+        else None
+    )
     rising_latency = slope is not None and slope >= 10
     errors_text = " ".join(_errors(candidate_evidence)).lower()
     trace_operations = " ".join(_slow_spans(candidate_evidence)).lower()
@@ -131,12 +162,20 @@ def assess_regression(
             "deterministic latency, error, and throughput gates found no material regression"
         )
 
+    if throughput_dropped and throughput_explained:
+        reasons.append(
+            "throughput fell in step with latency at unchanged client concurrency, so the rate "
+            "delta repeats the latency comparison instead of proving an independent regression"
+        )
+
     return RegressionAssessment(
         classification=classification,
         latency_p95=p95,
         latency_p99=p99,
         error_rate=errors,
         throughput=throughput,
+        implied_concurrency=concurrency,
+        throughput_explained_by_latency=throughput_explained if throughput_dropped else None,
         latency_slope_ms_per_window=slope,
         server_client_latency_gap_ms=_server_client_gap(candidate, candidate_evidence),
         threshold_violations=threshold_violations,
