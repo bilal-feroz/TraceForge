@@ -26,6 +26,9 @@ from traceforge.models import (
 from traceforge.security import redact
 from traceforge.settings import Settings
 from traceforge.signoz_metrics import metric_evidence
+from traceforge.telemetry import workflow_span
+
+EVIDENCE_ROW_LIMIT = 200
 
 REQUIRED_CAPABILITIES = {
     "signoz_list_services",
@@ -39,6 +42,12 @@ REQUIRED_CAPABILITIES = {
     "signoz_aggregate_logs",
     "signoz_search_logs",
     "signoz_query_metrics",
+}
+
+DASHBOARD_CAPABILITIES = {
+    "signoz_list_dashboards",
+    "signoz_create_dashboard",
+    "signoz_update_dashboard",
 }
 
 
@@ -69,6 +78,35 @@ def _connection_error(exc: BaseException) -> str:
     if any(marker in lowered for marker in ("connect", "dns", "ssl", "tls")):
         return "SigNoz MCP network or TLS connection failed"
     return "SigNoz MCP connection failed during initialization or tool discovery"
+
+
+def _first_signoz_error(exc: BaseException) -> SigNozUnavailable | None:
+    """Find a SigNoz failure inside the ExceptionGroup anyio raises when a task group unwinds."""
+    if isinstance(exc, SigNozUnavailable):
+        return exc
+    for nested in getattr(exc, "exceptions", ()):
+        found = _first_signoz_error(nested)
+        if found is not None:
+            return found
+    return None
+
+
+def _dashboard_write_error(exc: SigNozUnavailable) -> SigNozUnavailable:
+    """Name the read-only service account explicitly instead of reporting a transport failure."""
+    detail = str(exc)
+    if "403" in detail or "editors/admins" in detail.lower():
+        return SigNozCapabilityError(
+            "the SigNoz service account is read-only, so dashboard writes are refused with HTTP "
+            "403; publish with an editor or admin API key, or import the JSON by hand"
+        )
+    return exc
+
+
+def _tool_error_text(result: Any) -> str:
+    text = " ".join(
+        str(getattr(block, "text", "")).strip() for block in getattr(result, "content", [])
+    ).strip()
+    return text[:300] if text else "no detail returned"
 
 
 def _connection_error_text(exc: BaseException) -> str:
@@ -146,8 +184,7 @@ def _row_data(row: dict[str, Any]) -> dict[str, Any]:
 def _contains_correlation(value: Any, run_id: str) -> bool:
     if isinstance(value, dict):
         return any(
-            (key == "traceforge.run.id" and item == run_id)
-            or _contains_correlation(item, run_id)
+            (key == "traceforge.run.id" and item == run_id) or _contains_correlation(item, run_id)
             for key, item in value.items()
         )
     if isinstance(value, list):
@@ -157,6 +194,18 @@ def _contains_correlation(value: Any, run_id: str) -> bool:
 
 def _escape_filter(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def _dashboard_id(listing: Any, title: str) -> str | None:
+    """Find an existing dashboard UUID by exact title so republishing is idempotent."""
+    for row in _rows(listing):
+        candidate = row.get("title") or row.get("name")
+        if isinstance(candidate, str) and candidate.strip() == title:
+            for key in ("id", "uuid", "dashboard_id"):
+                value = row.get(key)
+                if isinstance(value, str) and value:
+                    return value
+    return None
 
 
 class SigNozMCPClient:
@@ -170,6 +219,7 @@ class SigNozMCPClient:
         self.invocation_sink = invocation_sink
         self.tools: dict[str, dict[str, Any]] = {}
         self.invocations: list[MCPInvocation] = []
+        self.correlation_run_id: str | None = None
 
     def _configured(self) -> tuple[str, dict[str, str]]:
         if not self.settings.signoz_mcp_configured:
@@ -211,19 +261,31 @@ class SigNozMCPClient:
         invocation_id = str(uuid4())
         error: str | None = None
         response: Any = None
-        for attempt in range(attempts):
-            try:
-                result = await session.call_tool(name, arguments)
-                if getattr(result, "isError", False) or getattr(result, "is_error", False):
-                    raise SigNozUnavailable(f"{name} returned an MCP tool error")
-                response = _result_payload(result)
-                error = None
-                break
-            except (httpx.TimeoutException, httpx.TransportError, SigNozUnavailable) as exc:
-                error = str(exc)
-                if attempt + 1 >= attempts:
+        with workflow_span(
+            "signoz.mcp.call",
+            **{
+                "traceforge.mcp.tool": name,
+                "traceforge.run.id": self.correlation_run_id or "",
+            },
+        ) as span:
+            for attempt in range(attempts):
+                try:
+                    result = await session.call_tool(name, arguments)
+                    if getattr(result, "isError", False) or getattr(result, "is_error", False):
+                        raise SigNozUnavailable(
+                            f"{name} returned an MCP tool error: {_tool_error_text(result)}"
+                        )
+                    response = _result_payload(result)
+                    error = None
                     break
-                await asyncio.sleep(0.5 * (2**attempt))
+                except (httpx.TimeoutException, httpx.TransportError, SigNozUnavailable) as exc:
+                    error = str(exc)
+                    if attempt + 1 >= attempts:
+                        break
+                    await asyncio.sleep(0.5 * (2**attempt))
+            span.set_attribute("traceforge.mcp.attempts", attempt + 1)
+            if error is not None:
+                span.set_attribute("traceforge.success", False)
         duration_ms = (time.perf_counter() - start_clock) * 1_000
         safe_request = redact(arguments)
         invocation = MCPInvocation(
@@ -278,6 +340,72 @@ class SigNozMCPClient:
                 "SigNoz MCP is missing required investigation tools: " + ", ".join(missing)
             )
 
+    async def publish_dashboard(self, definition: dict[str, Any]) -> dict[str, Any]:
+        """Create the dashboard, or replace it in place when the title already exists."""
+        url, headers = self._configured()
+        title = str(definition.get("title", "")).strip()
+        if not title:
+            raise SigNozUnavailable("the dashboard definition is missing a title")
+        timeout = httpx.Timeout(max(self.settings.mcp_timeout_seconds, 60))
+        try:
+            async with httpx.AsyncClient(
+                headers=headers, timeout=timeout, follow_redirects=True
+            ) as http_client:
+                async with streamable_http_client(url, http_client=http_client) as streams:
+                    read, write, _ = streams
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        response = await session.list_tools()
+                        self.tools = {
+                            tool.name: (
+                                getattr(tool, "inputSchema", None)
+                                or getattr(tool, "input_schema", None)
+                                or {}
+                            )
+                            for tool in response.tools
+                        }
+                        missing = sorted(DASHBOARD_CAPABILITIES - self.tools.keys())
+                        if missing:
+                            raise SigNozCapabilityError(
+                                "the SigNoz service account cannot write dashboards; missing "
+                                + ", ".join(missing)
+                            )
+                        existing = await self._recorded_call(
+                            session,
+                            "signoz_list_dashboards",
+                            {"limit": 1000, "searchContext": f"publish dashboard {title}"},
+                            attempts=1,
+                        )
+                        target = _dashboard_id(existing, title)
+                        if target is None:
+                            payload = await self._recorded_call(
+                                session,
+                                "signoz_create_dashboard",
+                                {**definition, "searchContext": f"publish dashboard {title}"},
+                                attempts=1,
+                            )
+                            action = "created"
+                        else:
+                            payload = await self._recorded_call(
+                                session,
+                                "signoz_update_dashboard",
+                                {
+                                    "id": target,
+                                    "dashboard": definition,
+                                    "searchContext": f"republish dashboard {title}",
+                                },
+                                attempts=1,
+                            )
+                            action = "updated"
+        except SigNozUnavailable as exc:
+            raise _dashboard_write_error(exc) from None
+        except Exception as exc:
+            nested = _first_signoz_error(exc)
+            if nested is not None:
+                raise _dashboard_write_error(nested) from None
+            raise SigNozUnavailable(_connection_error(exc)) from None
+        return {"action": action, "title": title, "response": payload}
+
     async def investigate(
         self,
         *,
@@ -287,6 +415,7 @@ class SigNozMCPClient:
         window: ExperimentWindow,
     ) -> TelemetryEvidence:
         url, headers = self._configured()
+        self.correlation_run_id = run_id
         timeout = httpx.Timeout(self.settings.mcp_timeout_seconds)
         start_ms = int((window.started_at - timedelta(seconds=5)).timestamp() * 1_000)
         end_ms = int((window.ended_at + timedelta(seconds=10)).timestamp() * 1_000)
@@ -390,7 +519,7 @@ class SigNozMCPClient:
                                     "service": service_name,
                                     "start": start_ms,
                                     "end": end_ms,
-                                    "limit": 200,
+                                    "limit": EVIDENCE_ROW_LIMIT,
                                 },
                             ),
                         )
@@ -441,7 +570,7 @@ class SigNozMCPClient:
                                 "service": service_name,
                                 "start": start_ms,
                                 "end": end_ms,
-                                "limit": 200,
+                                "limit": EVIDENCE_ROW_LIMIT,
                             },
                         ),
                     )

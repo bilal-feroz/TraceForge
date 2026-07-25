@@ -17,6 +17,7 @@ from traceforge.patching import PatchError
 from traceforge.process import run_process
 from traceforge.report import render_report
 from traceforge.settings import get_settings
+from traceforge.signoz import SigNozMCPClient, SigNozUnavailable
 from traceforge.telemetry import configure_telemetry
 
 app = typer.Typer(
@@ -28,10 +29,28 @@ runs_app = typer.Typer(help="Inspect and resume durable runs.")
 ledger_app = typer.Typer(help="Verify the tamper-evident run ledger.")
 patch_app = typer.Typer(help="Inspect governed patch proposals.")
 demo_app = typer.Typer(help="Run a reproducible TraceForge scenario.")
+dashboard_app = typer.Typer(help="Publish the native SigNoz release-proof dashboard.")
 app.add_typer(runs_app, name="runs")
 app.add_typer(ledger_app, name="ledger")
 app.add_typer(patch_app, name="patch")
 app.add_typer(demo_app, name="demo")
+app.add_typer(dashboard_app, name="dashboard")
+
+DASHBOARD_TEMPLATE = (
+    Path(__file__).resolve().parents[4]
+    / "infra"
+    / "signoz"
+    / "traceforge-release-proof.dashboard.json"
+)
+
+
+@app.callback()
+def main() -> None:
+    """Force UTF-8 console output so redirected Windows pipes keep report characters."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
 
 
 def output(value: Any, *, json_mode: bool) -> None:
@@ -255,6 +274,54 @@ def demo(scenario: str, *, profile: Profile, port: int, json_mode: bool) -> None
     output(completed if json_mode else render_report(completed), json_mode=json_mode)
     if completed.terminal_state and completed.terminal_state.value == "FAILED":
         raise typer.Exit(2)
+
+
+@dashboard_app.command("publish")
+def dashboard_publish(
+    template: Annotated[
+        Path,
+        typer.Option("--template", exists=True, dir_okay=False, help="Dashboard definition JSON."),
+    ] = DASHBOARD_TEMPLATE,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Validate the definition without calling SigNoz.")
+    ] = False,
+) -> None:
+    """Create or replace the "TraceForge — Release Proof" dashboard through SigNoz MCP."""
+    definition = json.loads(template.read_text(encoding="utf-8"))
+    widgets = definition.get("widgets", [])
+    layout = {item["i"] for item in definition.get("layout", [])}
+    identifiers = {item["id"] for item in widgets}
+    if layout != identifiers:
+        typer.echo(
+            f"layout and widget identifiers disagree: {sorted(layout ^ identifiers)}",
+            err=True,
+        )
+        raise typer.Exit(1)
+    typer.echo(
+        f"{definition['title']}: {len(widgets)} widgets, {len(definition['variables'])} variables"
+    )
+    if dry_run:
+        typer.echo("dry run: the definition is internally consistent and was not published")
+        return
+    settings = get_settings()
+    configure_telemetry(
+        settings.service_name,
+        endpoint=settings.otlp_endpoint,
+        header_value=settings.otlp_headers,
+        ingestion_key=settings.signoz_ingestion_key,
+    )
+    client = SigNozMCPClient(settings)
+    try:
+        result = asyncio.run(client.publish_dashboard(definition))
+    except SigNozUnavailable as exc:
+        typer.echo(str(exc), err=True)
+        typer.echo(
+            "Import infra/signoz/traceforge-release-proof.dashboard.json manually from "
+            "Dashboards > New dashboard > Import JSON.",
+            err=True,
+        )
+        raise typer.Exit(1) from None
+    typer.echo(f"{result['action']}: {result['title']}")
 
 
 @demo_app.command("lock")

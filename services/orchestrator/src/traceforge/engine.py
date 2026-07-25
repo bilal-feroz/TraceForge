@@ -36,6 +36,7 @@ from traceforge.patching import (
 )
 from traceforge.process import ProcessError, run_process
 from traceforge.regression import assess_regression
+from traceforge.release_proof import ReleaseProof, build_release_proof
 from traceforge.security import (
     SecurityViolation,
     validate_repository_path,
@@ -294,7 +295,8 @@ class RunEngine:
             )
 
         if run.stage == Stage.CANDIDATE_COMPLETED:
-            await self._retrieve_telemetry(run)
+            with workflow_span("signoz.preflight", **{"traceforge.run.id": run.run_id}):
+                await self._retrieve_telemetry(run)
             if not all(
                 run.telemetry.get(phase) and run.telemetry[phase].available
                 for phase in (Phase.BASELINE, Phase.CANDIDATE)
@@ -319,31 +321,34 @@ class RunEngine:
             )
 
         if run.stage == Stage.TELEMETRY_CONFIRMED:
+            with workflow_span("telemetry.correlate", **{"traceforge.run.id": run.run_id}):
+                trace_count = sum(len(item.traces) for item in run.telemetry.values())
+                log_count = sum(len(item.logs) for item in run.telemetry.values())
             self._transition(
                 run,
                 Stage.SIGNALS_CORRELATED,
                 action="telemetry.correlate",
-                output={
-                    "trace_count": sum(len(item.traces) for item in run.telemetry.values()),
-                    "log_count": sum(len(item.logs) for item in run.telemetry.values()),
-                },
+                output={"trace_count": trace_count, "log_count": log_count},
             )
 
         if run.stage == Stage.SIGNALS_CORRELATED:
             baseline = run.experiments[Phase.BASELINE]
             candidate = run.experiments[Phase.CANDIDATE]
-            run.assessment = assess_regression(
-                baseline,
-                candidate,
-                candidate_evidence=run.telemetry[Phase.CANDIDATE],
-            )
+            with workflow_span("regression.classify", **{"traceforge.run.id": run.run_id}) as span:
+                run.assessment = assess_regression(
+                    baseline,
+                    candidate,
+                    candidate_evidence=run.telemetry[Phase.CANDIDATE],
+                )
+                span.set_attribute("traceforge.classification", run.assessment.classification.value)
             assert run.change_set and run.load_plan
-            run.diagnosis = generate_diagnosis(
-                change=run.change_set,
-                assessment=run.assessment,
-                evidence=run.telemetry[Phase.CANDIDATE],
-                endpoint=run.load_plan.endpoint.path,
-            )
+            with workflow_span("diagnosis.generate", **{"traceforge.run.id": run.run_id}):
+                run.diagnosis = generate_diagnosis(
+                    change=run.change_set,
+                    assessment=run.assessment,
+                    evidence=run.telemetry[Phase.CANDIDATE],
+                    endpoint=run.load_plan.endpoint.path,
+                )
             self.store.save(run)
             self._transition(
                 run,
@@ -355,7 +360,8 @@ class RunEngine:
         if run.stage == Stage.REGRESSION_CLASSIFIED:
             assert run.assessment
             if run.assessment.classification == RegressionClassification.NO_REGRESSION:
-                await asyncio.to_thread(self._verify_control, run)
+                with workflow_span("verification.execute", **{"traceforge.run.id": run.run_id}):
+                    await asyncio.to_thread(self._verify_control, run)
                 return run
             if run.assessment.classification == RegressionClassification.INSUFFICIENT_EVIDENCE:
                 self._publish(
@@ -374,7 +380,8 @@ class RunEngine:
                     "The proposed patch did not pass independent audit.",
                 )
                 return run
-            await self._verify_patch(run)
+            with workflow_span("verification.execute", **{"traceforge.run.id": run.run_id}):
+                await self._verify_patch(run)
         return run
 
     def _experiment(self, run: TraceForgeRun, phase: Phase, revision: str) -> K6RunResult:
@@ -382,15 +389,19 @@ class RunEngine:
         run_dir = self._run_dir(run.run_id)
         artifact_dir = run_dir / "experiments" / phase.value
         if not run.target.target_command:
-            return execute(
-                script=run.k6_script,
-                phase=phase,
-                run_id=run.run_id,
-                git_sha=revision,
-                target_url=str(run.target.target_url),
-                artifact_dir=artifact_dir,
-                settings=self.settings,
-            )
+            with workflow_span(
+                "k6.execute",
+                **{"traceforge.run.id": run.run_id, "traceforge.phase": phase.value},
+            ):
+                return execute(
+                    script=run.k6_script,
+                    phase=phase,
+                    run_id=run.run_id,
+                    git_sha=revision,
+                    target_url=str(run.target.target_url),
+                    artifact_dir=artifact_dir,
+                    settings=self.settings,
+                )
         worktree = Worktree(
             repository=Path(run.target.path),
             path=run_dir / "worktrees" / phase.value,
@@ -410,15 +421,19 @@ class RunEngine:
                     "PYTHONUNBUFFERED": "1",
                 },
             ):
-                return execute(
-                    script=run.k6_script,
-                    phase=phase,
-                    run_id=run.run_id,
-                    git_sha=revision,
-                    target_url=str(run.target.target_url),
-                    artifact_dir=artifact_dir,
-                    settings=self.settings,
-                )
+                with workflow_span(
+                    "k6.execute",
+                    **{"traceforge.run.id": run.run_id, "traceforge.phase": phase.value},
+                ):
+                    return execute(
+                        script=run.k6_script,
+                        phase=phase,
+                        run_id=run.run_id,
+                        git_sha=revision,
+                        target_url=str(run.target.target_url),
+                        artifact_dir=artifact_dir,
+                        settings=self.settings,
+                    )
 
     async def _retrieve_telemetry(self, run: TraceForgeRun) -> None:
         assert run.load_plan
@@ -543,12 +558,13 @@ class RunEngine:
     def _propose_and_audit(self, run: TraceForgeRun, inspector: GitInspector) -> None:
         assert run.change_set and run.diagnosis
         allowed = {item.path for item in run.change_set.files}
-        run.patch = propose_minimal_reversion(
-            inspector,
-            diagnosis=run.diagnosis,
-            base_sha=run.change_set.base.sha,
-            allowed_files=allowed,
-        )
+        with workflow_span("patch.generate", **{"traceforge.run.id": run.run_id}):
+            run.patch = propose_minimal_reversion(
+                inspector,
+                diagnosis=run.diagnosis,
+                base_sha=run.change_set.base.sha,
+                allowed_files=allowed,
+            )
         self.store.save(run)
         self._transition(
             run,
@@ -563,7 +579,7 @@ class RunEngine:
             revision=run.change_set.candidate.sha,
             managed_root=run_dir / "worktrees",
         )
-        with worktree as path:
+        with worktree as path, workflow_span("patch.audit", **{"traceforge.run.id": run.run_id}):
             run.patch_audit = audit_patch(
                 run.patch,
                 worktree=path,
@@ -624,16 +640,23 @@ class RunEngine:
                         "PYTHONUNBUFFERED": "1",
                     },
                 ):
-                    patched = await asyncio.to_thread(
-                        execute,
-                        script=run.k6_script,
-                        phase=Phase.PATCHED,
-                        run_id=run.run_id,
-                        git_sha=run.change_set.candidate.sha,
-                        target_url=str(run.target.target_url),
-                        artifact_dir=artifact_dir,
-                        settings=self.settings,
-                    )
+                    with workflow_span(
+                        "k6.execute",
+                        **{
+                            "traceforge.run.id": run.run_id,
+                            "traceforge.phase": Phase.PATCHED.value,
+                        },
+                    ):
+                        patched = await asyncio.to_thread(
+                            execute,
+                            script=run.k6_script,
+                            phase=Phase.PATCHED,
+                            run_id=run.run_id,
+                            git_sha=run.change_set.candidate.sha,
+                            target_url=str(run.target.target_url),
+                            artifact_dir=artifact_dir,
+                            settings=self.settings,
+                        )
                 run.experiments[Phase.PATCHED] = patched
                 client = SigNozMCPClient(self.settings)
                 try:
@@ -732,29 +755,33 @@ class RunEngine:
             )
 
     def _publish(self, run: TraceForgeRun, value: VerdictValue, reason: str) -> None:
-        run.verdict = Verdict(
-            value=value,
-            reason=reason,
-            verification_status=run.verification.status if run.verification else None,
-        )
-        self.store.save(run)
-        self._transition(
-            run,
-            Stage.VERDICT_PUBLISHED,
-            action="verdict.publish",
-            output=run.verdict.model_dump(mode="json"),
-        )
-        terminal = {
-            VerdictValue.SHIP: TerminalState.PASSED,
-            VerdictValue.BLOCK: TerminalState.BLOCKED,
-            VerdictValue.NEEDS_REVIEW: TerminalState.NEEDS_REVIEW,
-        }[value]
-        self._transition(
-            run,
-            terminal,
-            action="run.terminal",
-            output={"verdict": value.value},
-        )
+        with workflow_span(
+            "verdict.publish",
+            **{"traceforge.run.id": run.run_id, "traceforge.verdict": value.value},
+        ):
+            run.verdict = Verdict(
+                value=value,
+                reason=reason,
+                verification_status=run.verification.status if run.verification else None,
+            )
+            self.store.save(run)
+            self._transition(
+                run,
+                Stage.VERDICT_PUBLISHED,
+                action="verdict.publish",
+                output=run.verdict.model_dump(mode="json"),
+            )
+            terminal = {
+                VerdictValue.SHIP: TerminalState.PASSED,
+                VerdictValue.BLOCK: TerminalState.BLOCKED,
+                VerdictValue.NEEDS_REVIEW: TerminalState.NEEDS_REVIEW,
+            }[value]
+            self._transition(
+                run,
+                terminal,
+                action="run.terminal",
+                output={"verdict": value.value},
+            )
 
     def _terminate(self, run: TraceForgeRun, terminal: TerminalState, action: str) -> None:
         if run.terminal_state is not None:
@@ -772,6 +799,10 @@ class RunEngine:
     def ledger_verify(self, run_id: str) -> LedgerVerification:
         self.get(run_id)
         return self._ledger(run_id).verify(require_terminal=True)
+
+    def release_proof(self, run_id: str) -> ReleaseProof:
+        run = self.get(run_id)
+        return build_release_proof(run, self._ledger(run_id))
 
     def patch_text(self, run_id: str) -> str:
         run = self.get(run_id)
