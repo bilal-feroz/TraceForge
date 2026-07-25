@@ -1,0 +1,363 @@
+{
+  "source": {
+    "dashboard": "TraceForge — Release Proof",
+    "signoz_run_id": "50ef7693-1eb8-4050-8ae8-1de5c76f83b2",
+    "scenario": "demo lock (SQLite write-lock contention)",
+    "service_name": "traceforge-demo-target",
+    "dashboard_time_range": "Last 1 day",
+    "dashboard_timezone": "UTC+04:00",
+    "capture_date": "2026-07-26",
+    "capture_dimensions": "1024 px wide, 496-523 px tall",
+    "handling": "Copied byte-for-byte from the uploads. No cropping, scaling, recolouring, annotation, or recompression was applied; SHA-256 of every copy matches its source."
+  },
+  "phase_reference": {
+    "note": "Client-side k6 numbers for the same run, for cross-checking captions. The dashboard panels count server-side spans inside the phase window, which is not the same population as k6 client requests.",
+    "baseline": { "k6_requests": 5524, "k6_failure_rate": 0.0009, "k6_p95_ms": 601.93 },
+    "candidate": { "k6_requests": 6499, "k6_failure_rate": 0.944, "k6_p95_ms": 340.19 },
+    "patched": { "k6_requests": 5637, "k6_failure_rate": 0.0016, "k6_p95_ms": 605.61 }
+  },
+  "screenshots": [
+    {
+      "filename": "baseline-01-overview-kpis.png",
+      "sha256": "a595865c475f347d76f90e562c60915830de82a1495d02e8cd85363b5fdf03b2",
+      "original_upload_position": 1,
+      "phase": "baseline",
+      "phase_verified_from": "$phase variable reads 'baseline' in the variable bar",
+      "primary_purpose": "dashboard overview + baseline key figures",
+      "important_visible_values": [
+        "Requests observed server-side: 5522",
+        "Error spans: 3",
+        "\"database is locked\" logs: 3",
+        "Server-side span P95: 600.85 ms",
+        "$run_id 50ef7693-1eb8-4050-8ae8-1de5c76f83b2, $phase baseline, $service_name traceforge-demo-target"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 196, "width": 1024, "height": 170, "note": "variable bar plus the four value tiles; keeps the phase selector visible so the audience knows which phase they are seeing" },
+      "recommended_zoom_target": "the four value tiles, pushing in slightly on 'Error spans: 3'",
+      "recommended_caption": "Baseline — 5,522 server-side spans, 3 error spans, P95 600.85 ms",
+      "recommended_narration": "This is the base revision under load, seen from the server. Three error spans out of five and a half thousand. That is our reference.",
+      "in_final_video": true,
+      "priority": "essential"
+    },
+    {
+      "filename": "baseline-02-latency-and-status.png",
+      "sha256": "d710404bef7f5b489adcf51d25d36ab653560db57aa173b6b0854cd8956ed9cb",
+      "original_upload_position": 2,
+      "phase": "baseline",
+      "phase_verified_from": "single 'baseline' series in the request-count and error-rate legends",
+      "primary_purpose": "latency percentiles + HTTP status distribution for the baseline",
+      "important_visible_values": [
+        "Error rate by phase peaks near 0.06%",
+        "Span duration P50/P95/P99 with P99 reaching roughly 2 s",
+        "HTTP status distribution: 5,522 total, 5,519 responses with status 201"
+      ],
+      "recommended_crop_region": { "x": 512, "y": 240, "width": 512, "height": 275, "note": "the status donut on its own" },
+      "recommended_zoom_target": "the donut centre reading 5522 with the 201 label",
+      "recommended_caption": "Baseline — 5,519 of 5,522 spans returned HTTP 201",
+      "recommended_narration": "Almost every request completed successfully. The tail is slow but the work is getting done.",
+      "in_final_video": false,
+      "priority": "supporting"
+    },
+    {
+      "filename": "baseline-03-lock-logs-slow-operations-traces.png",
+      "sha256": "d637ce7b46426132a860910337f4e603275d7d11fed6ca391610925aa41ad62c",
+      "original_upload_position": 3,
+      "phase": "baseline",
+      "phase_verified_from": "'baseline' legend on the lock-error panel and the traceforge.phase column reading 'baseline'",
+      "primary_purpose": "baseline lock-error logs, slowest operation, correlated traces and logs",
+      "important_visible_values": [
+        "Lock-error logs by phase: a single small baseline spike",
+        "Slowest operations: POST /api/visits, P95 600,847,335 ns, 5,522 spans",
+        "Correlated traces: POST /api/visits at 36-39 ms, status Unset",
+        "Correlated logs: INFO severity, traceforge.phase baseline"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 275, "width": 1024, "height": 236, "note": "correlated traces and logs tables side by side" },
+      "recommended_zoom_target": "the correlated-traces duration column showing 36 ms",
+      "recommended_caption": "Baseline — correlated spans at ~36 ms, no lock errors in the logs",
+      "recommended_narration": "Every span here carries the run ID, so this is provably the baseline window and nothing else.",
+      "in_final_video": false,
+      "priority": "supporting"
+    },
+    {
+      "filename": "baseline-04-correlated-evidence-and-stage-spans.png",
+      "sha256": "4aba719fe88cd304cfe84c4eb1182743d71d09dcaa044221f0f0f4cd86b413d4",
+      "original_upload_position": 4,
+      "phase": "baseline (target panels); the stage-span panels are run-wide, not phase-filtered",
+      "phase_verified_from": "traceforge.phase column reads 'baseline' in the correlated logs above the stage table",
+      "primary_purpose": "TraceForge self-observability: state-machine stage durations and SigNoz MCP tool calls",
+      "important_visible_values": [
+        "verification.execute 69,049,363,160 ns across 2 spans",
+        "k6.execute 59,363,859,775 ns across 6 spans",
+        "signoz.preflight 14,391,500,125 ns across 2 spans",
+        "verdict.publish 446,787,175 ns across 2 spans",
+        "MCP tool legend: signoz_get_field_keys, signoz_search_traces, signoz_query_metrics, signoz_search_logs, signoz_list_metrics, signoz_list_services"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 245, "width": 1024, "height": 267, "note": "stage-duration table and MCP tool-call chart together" },
+      "recommended_zoom_target": "the stage-name column: verification.execute, k6.execute, signoz.preflight, verdict.publish",
+      "recommended_caption": "TraceForge observing itself — workflow stages and every SigNoz MCP call",
+      "recommended_narration": "The agent is instrumented too. Each workflow stage and each MCP tool call is a span in the same SigNoz instance it is querying.",
+      "in_final_video": false,
+      "priority": "supporting"
+    },
+    {
+      "filename": "baseline-05-mcp-and-stage-failure-panels.png",
+      "sha256": "cfd0b3c58b3ccdc16063dfd06b089984dfba4977737ce1223751b5f8458b2fdb",
+      "original_upload_position": 5,
+      "phase": "baseline (target panels); failure panels are run-wide",
+      "phase_verified_from": "scroll continuation of the baseline capture set",
+      "primary_purpose": "MCP tool failures and TraceForge stage failures, both empty",
+      "important_visible_values": [
+        "SigNoz MCP tool failures: No Data",
+        "TraceForge stage failures: No Data"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 250, "width": 1024, "height": 250, "note": "only if used; crop off the Windows taskbar sliver at the bottom edge" },
+      "recommended_zoom_target": "none",
+      "recommended_caption": "No MCP failures, no failed stages",
+      "recommended_narration": "Zero failures is the correct outcome here, but an empty chart reads as a broken panel on video.",
+      "in_final_video": false,
+      "priority": "unused",
+      "flags": ["empty-no-data-panels", "windows-taskbar-visible-at-bottom", "overlaps-baseline-04"]
+    },
+    {
+      "filename": "candidate-01-overview-kpis.png",
+      "sha256": "e24d95aaf08fd869196593ceb6e26f6cbacb89fd33da6f0d3689a0b29a0707cc",
+      "original_upload_position": 11,
+      "phase": "candidate",
+      "phase_verified_from": "$phase variable reads 'candidate' in the variable bar",
+      "primary_purpose": "the regression in four numbers",
+      "important_visible_values": [
+        "Requests observed server-side: 3522",
+        "Error spans: 3158",
+        "\"database is locked\" logs: 3158",
+        "Server-side span P95: 281.15 ms"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 196, "width": 1024, "height": 170, "note": "variable bar plus the four value tiles, framed identically to baseline-01 for a clean cut" },
+      "recommended_zoom_target": "'Error spans: 3158' and '\"database is locked\" logs: 3158' together",
+      "recommended_caption": "Candidate — 3,158 error spans and 3,158 lock-error logs, P95 down to 281 ms",
+      "recommended_narration": "Same load, same dashboard, one variable changed. The P95 actually improved to 281 milliseconds, and that is the trap: three thousand one hundred and fifty-eight of these spans are errors.",
+      "in_final_video": true,
+      "priority": "essential"
+    },
+    {
+      "filename": "candidate-02-error-rate-and-status.png",
+      "sha256": "80fe200697bab372e88c33fa8cf21b95b18adfa30e7bc2965fcd4198b0e6a6ba",
+      "original_upload_position": 12,
+      "phase": "candidate",
+      "phase_verified_from": "'candidate' and 'error rate candidate' series legends",
+      "primary_purpose": "the strongest single regression frame: error rate near 92% and the status donut inverted",
+      "important_visible_values": [
+        "Error rate by phase peaks around 92%",
+        "Span duration P50 ~150 ms, P99 ~350 ms",
+        "HTTP status distribution: 3,522 total, 3,158 with status 500, 364 with status 201"
+      ],
+      "recommended_crop_region": { "x": 512, "y": 235, "width": 512, "height": 261, "note": "the status donut alone; it carries the whole argument" },
+      "recommended_zoom_target": "the donut, holding on the 500 = 3158 label against 201 = 364",
+      "recommended_caption": "Candidate — 3,158 responses returned HTTP 500, only 364 succeeded",
+      "recommended_narration": "The donut flips. Three thousand one hundred and fifty-eight server errors against three hundred and sixty-four successes. The latency looked better because the failures returned faster than the work.",
+      "in_final_video": true,
+      "priority": "essential"
+    },
+    {
+      "filename": "candidate-03-lock-logs-slow-operations-traces.png",
+      "sha256": "882d3fd9be0be8a991ba2610345e7a021686813af21f6841acd09dce3635a6a8",
+      "original_upload_position": 13,
+      "phase": "candidate",
+      "phase_verified_from": "'candidate' legend on the lock-error panel and the traceforge.phase column reading 'candidate'",
+      "primary_purpose": "database-lock evidence and the correlated traces behind it",
+      "important_visible_values": [
+        "Lock-error logs by phase: candidate spike above 2,500 on the axis",
+        "Slowest operations: POST /api/visits, P95 281,153,015 ns, 3,522 spans",
+        "Correlated traces: POST /api/visits at 101-110 ms",
+        "Correlated logs carry traceforge.phase candidate"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 0, "width": 512, "height": 275, "note": "the lock-error-logs panel alone" },
+      "recommended_zoom_target": "the lock-error spike, then pan right to the correlated-traces table",
+      "recommended_caption": "Candidate — the lock errors are in the logs, correlated to this run",
+      "recommended_narration": "These are not inferred from the diff. They are log records carrying the run ID, counted inside the candidate window.",
+      "in_final_video": true,
+      "priority": "essential",
+      "flags": ["exception-message-column-is-empty-in-visible-rows", "database-is-locked-string-not-legible-anywhere-in-the-set"]
+    },
+    {
+      "filename": "candidate-04-correlated-evidence-and-stage-spans.png",
+      "sha256": "5b19d6796b9cf2beaca60fd208d149046974fd72f301f436c9e37431b11da130",
+      "original_upload_position": 14,
+      "phase": "candidate (target panels); the stage-span panels are run-wide",
+      "phase_verified_from": "traceforge.phase column reads 'candidate' in the correlated logs above the stage table",
+      "primary_purpose": "self-observability frame that still carries candidate context above it",
+      "important_visible_values": [
+        "Correlated traces at 101-110 ms with candidate phase logs",
+        "verification.execute 69,049,363,160 ns / 2 spans",
+        "k6.execute 59,363,859,775 ns / 6 spans",
+        "GET /api/v1/runs 630,130,565 ns / 12 spans",
+        "MCP tool-call series for six distinct SigNoz tools"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 245, "width": 1024, "height": 268, "note": "stage-duration table and MCP tool-call chart" },
+      "recommended_zoom_target": "the stage table rows, then the MCP tool legend",
+      "recommended_caption": "The agent's own workflow: stage spans and every SigNoz MCP call",
+      "recommended_narration": "While it investigated the target, TraceForge exported its own run. Fifteen workflow stages and every MCP tool call, in the same SigNoz instance.",
+      "in_final_video": true,
+      "priority": "essential",
+      "flags": ["durations-shown-in-raw-nanoseconds", "table-mixes-workflow-stages-with-fastapi-routes", "stage-panels-are-not-phase-filtered-so-they-repeat-across-all-three-phases"]
+    },
+    {
+      "filename": "candidate-05-mcp-and-stage-failure-panels.png",
+      "sha256": "c6020c92850840d05cf37f6b095783cec16b7ca170ef63adf2612a9de7d537a0",
+      "original_upload_position": 15,
+      "phase": "candidate (target panels); failure panels are run-wide",
+      "phase_verified_from": "scroll continuation of the candidate capture set",
+      "primary_purpose": "MCP tool failures and stage failures, both empty",
+      "important_visible_values": [
+        "SigNoz MCP tool failures: No Data",
+        "TraceForge stage failures: No Data"
+      ],
+      "recommended_crop_region": null,
+      "recommended_zoom_target": "none",
+      "recommended_caption": "No MCP failures, no failed stages",
+      "recommended_narration": "Not worth a beat on video; the empty panels look like a loading error.",
+      "in_final_video": false,
+      "priority": "unused",
+      "flags": ["empty-no-data-panels", "near-duplicate-of-baseline-05-and-patched-05", "overlaps-candidate-04"]
+    },
+    {
+      "filename": "patched-01-overview-kpis.png",
+      "sha256": "f990f9001e1b6c5e2096645325c7ce13bd3372f04d8c46ec67211c05dae7d7e7",
+      "original_upload_position": 6,
+      "phase": "patched",
+      "phase_verified_from": "$phase variable reads 'patched' in the variable bar",
+      "primary_purpose": "recovery in the same four numbers",
+      "important_visible_values": [
+        "Requests observed server-side: 5633",
+        "Error spans: 5",
+        "\"database is locked\" logs: 5",
+        "Server-side span P95: 605.2 ms"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 196, "width": 1024, "height": 170, "note": "same framing as baseline-01 and candidate-01 so the three cut together" },
+      "recommended_zoom_target": "'Error spans: 5' next to the remembered 3158",
+      "recommended_caption": "Patched — 5,633 spans, 5 error spans, P95 605.2 ms",
+      "recommended_narration": "After the patch, on the identical load script: five error spans instead of three thousand, at baseline latency. That is the comparison that earns a ship verdict.",
+      "in_final_video": true,
+      "priority": "essential"
+    },
+    {
+      "filename": "patched-02-latency-and-status.png",
+      "sha256": "f7a6499b9b8ccba3ebccc9a14110dc0e0d823b43f948f96602e35e805073ecca",
+      "original_upload_position": 7,
+      "phase": "patched",
+      "phase_verified_from": "'patched' and 'error rate patched' series legends",
+      "primary_purpose": "patched latency percentiles and status distribution",
+      "important_visible_values": [
+        "Error rate by phase peaks near 0.18%",
+        "HTTP status distribution: 5,633 total, 5,628 with status 201"
+      ],
+      "recommended_crop_region": { "x": 512, "y": 235, "width": 512, "height": 280, "note": "the status donut, to cut directly against the candidate donut" },
+      "recommended_zoom_target": "the donut centre reading 5633 with 201 = 5628",
+      "recommended_caption": "Patched — 5,628 of 5,633 spans returned HTTP 201",
+      "recommended_narration": "The donut is green again, at the same request volume as the baseline.",
+      "in_final_video": false,
+      "priority": "supporting",
+      "note": "Strong candidate for a side-by-side split screen against candidate-02 if the edit has room for one comparison shot."
+    },
+    {
+      "filename": "patched-03-lock-logs-slow-operations-traces.png",
+      "sha256": "1fc5b49ad313e9b890d90fb2ad90a58ce65b1628d1c7b175e02e42db4e09eb36",
+      "original_upload_position": 8,
+      "phase": "patched",
+      "phase_verified_from": "'patched' legend on the lock-error panel and the traceforge.phase column reading 'patched'",
+      "primary_purpose": "lock errors effectively gone after the patch",
+      "important_visible_values": [
+        "Lock-error logs by phase: patched spike near 5 on a 0-10 axis",
+        "Slowest operations: POST /api/visits, P95 605,203,120 ns, 5,633 spans",
+        "Correlated traces at 34-37 ms"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 0, "width": 512, "height": 275, "note": "lock-error panel, to cut against the same panel on candidate-03" },
+      "recommended_zoom_target": "the y-axis maximum of 10 versus the candidate panel's 2,500+",
+      "recommended_caption": "Patched — lock errors back down to single digits",
+      "recommended_narration": "Same panel, same query, same load. The lock errors are gone.",
+      "in_final_video": false,
+      "priority": "supporting"
+    },
+    {
+      "filename": "patched-04-correlated-evidence-and-stage-spans.png",
+      "sha256": "5c5d00bc20b711daee07bd711128e13511d4d6d3cb0b55c72ff72f904bdf93fd",
+      "original_upload_position": 9,
+      "phase": "patched (target panels); the stage-span panels are run-wide",
+      "phase_verified_from": "traceforge.phase column reads 'patched' in the correlated logs above the stage table",
+      "primary_purpose": "self-observability, patched context",
+      "important_visible_values": [
+        "Correlated traces at 34-37 ms with patched phase logs",
+        "Same run-wide stage-duration table and MCP tool-call chart as the other phases"
+      ],
+      "recommended_crop_region": { "x": 0, "y": 0, "width": 1024, "height": 240, "note": "patched correlated traces and logs only; the stage panels below duplicate candidate-04" },
+      "recommended_zoom_target": "the patched trace durations",
+      "recommended_caption": "Patched evidence, correlated to the same run",
+      "recommended_narration": "Optional; the stage panels here are identical to the candidate capture.",
+      "in_final_video": false,
+      "priority": "supporting",
+      "flags": ["stage-panels-duplicate-baseline-04-and-candidate-04"]
+    },
+    {
+      "filename": "patched-05-mcp-and-stage-failure-panels.png",
+      "sha256": "83db3b88c4f8e50c5f940573a397a7504d9f155f464c58da59408918f1d4fa22",
+      "original_upload_position": 10,
+      "phase": "patched (target panels); failure panels are run-wide",
+      "phase_verified_from": "scroll continuation of the patched capture set",
+      "primary_purpose": "MCP tool failures and stage failures, both empty",
+      "important_visible_values": [
+        "SigNoz MCP tool failures: No Data",
+        "TraceForge stage failures: No Data"
+      ],
+      "recommended_crop_region": null,
+      "recommended_zoom_target": "none",
+      "recommended_caption": "No MCP failures, no failed stages",
+      "recommended_narration": "Skip on video.",
+      "in_final_video": false,
+      "priority": "unused",
+      "flags": ["empty-no-data-panels", "near-duplicate-of-baseline-05-and-candidate-05", "overlaps-patched-04"]
+    }
+  ],
+  "final_video_set": [
+    "baseline-01-overview-kpis.png",
+    "candidate-01-overview-kpis.png",
+    "candidate-02-error-rate-and-status.png",
+    "candidate-03-lock-logs-slow-operations-traces.png",
+    "patched-01-overview-kpis.png",
+    "candidate-04-correlated-evidence-and-stage-spans.png"
+  ],
+  "recapture_recommended": [
+    {
+      "item": "resolution",
+      "detail": "Every capture is 1024 px wide and has been through WhatsApp recompression. Full-screen on a 1080p timeline that is a 1.9x upscale, and any panel zoom is a 3-4x upscale, which will visibly smear the panel text. Recapture at native display resolution (1920 px or wider) with a lossless PNG path if these are to fill the frame.",
+      "severity": "high"
+    },
+    {
+      "item": "the literal 'database is locked' string",
+      "detail": "The set proves the lock errors numerically (3,158 in the counter and the by-phase chart) but the message text is never legible: the correlated-logs panel shows empty body cells, an empty exception.message column for the visible rows, and the traceforge.phase column clipped at the right edge. Recapture the correlated-logs panel widened or expanded on an error row so the message reads on screen.",
+      "severity": "high"
+    },
+    {
+      "item": "candidate correlated traces",
+      "detail": "The visible rows all show status Unset at ~100 ms, so the table does not show the failing spans. Sort or filter that panel by error status before recapturing.",
+      "severity": "medium"
+    },
+    {
+      "item": "state-machine stage duration table",
+      "detail": "Durations render as raw nanoseconds (69,049,363,160) and the table mixes workflow stages with FastAPI routes such as GET /api/v1/runs. It is also not filtered by phase, so it repeats identically across all three phase captures. Format the column as duration and filter to workflow spans before recapturing.",
+      "severity": "medium"
+    },
+    {
+      "item": "failure panels",
+      "detail": "The three *-05 captures are near-duplicates showing two 'No Data' panels. Zero failures is the right result, but it does not read as a result. Either replace with a panel that renders an explicit zero, or drop these frames.",
+      "severity": "low"
+    },
+    {
+      "item": "request-count panels",
+      "detail": "The by-phase graphs are a single hairline spike on a 24-hour axis, so the shape carries no information. Narrow the dashboard time range to the run window before recapturing.",
+      "severity": "medium"
+    }
+  ],
+  "accuracy_warnings": [
+    "Do not caption 'Requests observed server-side' as the k6 request count. It counts spans in the phase window: 5,522 / 3,522 / 5,633 on screen against 5,524 / 6,499 / 5,637 client requests. The candidate gap is large because many failing requests never produced a completed server span.",
+    "Do not caption the candidate as '94.4% errors' from these images. The panels support 3,158 error spans out of 3,522, which is 89.7% server-side. The 94.40% figure is the k6 client-side failure rate from the same run and belongs to a different frame.",
+    "The stage-duration and MCP panels are run-wide, not phase-scoped. Do not imply the numbers change between the baseline, candidate, and patched captures; they do not."
+  ]
+}

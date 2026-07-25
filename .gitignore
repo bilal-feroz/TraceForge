@@ -1,5 +1,9 @@
 .env
+video/.env
+video/.env.local
 .venv/
+.agents/
+skills-lock.json
 __pycache__/
 *.py[cod]
 .pytest_cache/
