@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 
 import { Availability, StatusBadge } from "@/components/status";
 import { API_URL, createRun, listRuns } from "@/lib/api";
-import type { Run } from "@/lib/types";
+import type { RunSummary } from "@/lib/types";
 
 const defaultForm = {
   repository: "",
@@ -24,7 +24,7 @@ function elapsed(date: string) {
 
 export function ControlRoom() {
   const [form, setForm] = useState(defaultForm);
-  const [runs, setRuns] = useState<Run[]>([]);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -203,44 +203,66 @@ export function ControlRoom() {
               </p>
             </div>
           ) : (
-            <table className="w-full min-w-[760px] border-collapse text-left">
+            <table className="w-full min-w-[880px] border-collapse text-left">
               <thead className="eyebrow border-b border-white/10 text-[0.62rem]">
                 <tr>
                   <th className="px-5 py-3 font-medium">Run</th>
                   <th className="px-5 py-3 font-medium">Change</th>
                   <th className="px-5 py-3 font-medium">Stage</th>
                   <th className="px-5 py-3 font-medium">Verdict</th>
+                  <th className="px-5 py-3 font-medium">SigNoz</th>
                   <th className="px-5 py-3 font-medium">Updated</th>
                 </tr>
               </thead>
               <tbody>
-                {runs.slice(0, 12).map((run) => (
-                  <tr className="border-b border-white/[.07] last:border-0" key={run.run_id}>
-                    <td className="px-5 py-4">
-                      <Link
-                        className="mono text-xs text-[var(--cyan)] underline-offset-4 hover:underline"
-                        href={`/runs/${run.run_id}`}
-                      >
-                        {run.run_id.slice(0, 8)}
-                      </Link>
-                    </td>
-                    <td className="mono max-w-64 truncate px-5 py-4 text-xs text-[var(--steel-300)]">
-                      {run.target.base_ref} → {run.target.candidate_ref}
-                    </td>
-                    <td className="mono px-5 py-4 text-[0.68rem] text-[var(--steel-300)]">
-                      {run.stage.replaceAll("_", " ")}
-                    </td>
-                    <td className="px-5 py-4">
-                      <StatusBadge
-                        value={run.terminal_state ?? "ACTIVE"}
-                        label={run.verdict?.value ?? (run.terminal_state ? undefined : "ACTIVE")}
-                      />
-                    </td>
-                    <td className="mono px-5 py-4 text-[0.68rem] text-[var(--steel-500)]">
-                      {elapsed(run.updated_at)}
-                    </td>
-                  </tr>
-                ))}
+                {runs.slice(0, 12).map((run) => {
+                  const phases = (["baseline", "candidate", "patched"] as const).filter(
+                    (phase) => run.telemetry[phase],
+                  );
+                  const confirmed = phases.filter((phase) => run.telemetry[phase]?.available);
+                  return (
+                    <tr className="border-b border-white/[.07] last:border-0" key={run.run_id}>
+                      <td className="px-5 py-4">
+                        <Link
+                          className="mono text-xs text-[var(--cyan)] underline-offset-4 hover:underline"
+                          href={run.terminal_state ? `/runs/${run.run_id}/proof` : `/runs/${run.run_id}`}
+                        >
+                          {run.run_id.slice(0, 8)}
+                        </Link>
+                      </td>
+                      <td className="mono max-w-64 truncate px-5 py-4 text-xs text-[var(--steel-300)]">
+                        {run.base_ref} → {run.candidate_ref}
+                      </td>
+                      <td className="mono px-5 py-4 text-[0.68rem] text-[var(--steel-300)]">
+                        {run.stage.replaceAll("_", " ")}
+                      </td>
+                      <td className="px-5 py-4">
+                        <StatusBadge
+                          value={run.terminal_state ?? "ACTIVE"}
+                          label={run.verdict ?? (run.terminal_state ? undefined : "ACTIVE")}
+                        />
+                      </td>
+                      <td className="mono px-5 py-4 text-[0.68rem]">
+                        {phases.length === 0 ? (
+                          <span className="text-[var(--steel-500)]">pending</span>
+                        ) : (
+                          <span
+                            className={
+                              confirmed.length === phases.length
+                                ? "text-[var(--cyan)]"
+                                : "text-[var(--amber)]"
+                            }
+                          >
+                            {confirmed.length}/{phases.length} phases
+                          </span>
+                        )}
+                      </td>
+                      <td className="mono px-5 py-4 text-[0.68rem] text-[var(--steel-500)]">
+                        {elapsed(run.updated_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

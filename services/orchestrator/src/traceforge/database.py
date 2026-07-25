@@ -10,6 +10,8 @@ from typing import Any
 
 from traceforge.models import Stage, TerminalState, TraceForgeRun
 
+RunSummaries = list[dict[str, Any]]
+
 MIGRATIONS = [
     """
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -118,6 +120,43 @@ class RunStore:
                 "SELECT payload_json FROM runs ORDER BY created_at DESC LIMIT ?", (limit,)
             ).fetchall()
         return [TraceForgeRun.model_validate_json(row["payload_json"]) for row in rows]
+
+    def list_summaries(self, *, limit: int = 100) -> RunSummaries:
+        """Project the run list in SQL so a full run history stays cheap to render."""
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT
+                    run_id,
+                    stage,
+                    terminal_state,
+                    created_at,
+                    updated_at,
+                    json_extract(payload_json, '$.target.base_ref') AS base_ref,
+                    json_extract(payload_json, '$.target.candidate_ref') AS candidate_ref,
+                    json_extract(payload_json, '$.target.path') AS repository,
+                    json_extract(payload_json, '$.verdict.value') AS verdict,
+                    json_extract(payload_json, '$.assessment.classification') AS classification,
+                    json_extract(payload_json, '$.telemetry.baseline.available') AS baseline_evidence,
+                    json_extract(payload_json, '$.telemetry.candidate.available') AS candidate_evidence,
+                    json_extract(payload_json, '$.telemetry.patched.available') AS patched_evidence,
+                    json_extract(payload_json, '$.last_error') AS last_error
+                FROM runs
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        summaries: RunSummaries = []
+        for row in rows:
+            item = dict(row)
+            item["telemetry"] = {
+                phase: {"available": bool(item.pop(f"{phase}_evidence"))}
+                for phase in ("baseline", "candidate", "patched")
+                if item[f"{phase}_evidence"] is not None
+            }
+            summaries.append(item)
+        return summaries
 
     def transition_exists(self, event_id: str) -> bool:
         with self.connect() as connection:

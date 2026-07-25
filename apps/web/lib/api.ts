@@ -1,4 +1,4 @@
-import type { Run } from "@/lib/types";
+import type { ReleaseProof, Run, RunSummary } from "@/lib/types";
 
 export const API_URL =
   process.env.NEXT_PUBLIC_TRACEFORGE_API_URL?.replace(/\/$/, "") ?? "http://127.0.0.1:8787";
@@ -11,9 +11,9 @@ async function parse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function listRuns(signal?: AbortSignal): Promise<Run[]> {
-  return parse<Run[]>(
-    await fetch(`${API_URL}/api/v1/runs`, {
+export async function listRuns(signal?: AbortSignal): Promise<RunSummary[]> {
+  return parse<RunSummary[]>(
+    await fetch(`${API_URL}/api/v1/runs?view=summary`, {
       cache: "no-store",
       signal,
     }),
@@ -23,6 +23,15 @@ export async function listRuns(signal?: AbortSignal): Promise<Run[]> {
 export async function getRun(runId: string, signal?: AbortSignal): Promise<Run> {
   return parse<Run>(
     await fetch(`${API_URL}/api/v1/runs/${encodeURIComponent(runId)}`, {
+      cache: "no-store",
+      signal,
+    }),
+  );
+}
+
+export async function getReleaseProof(runId: string, signal?: AbortSignal): Promise<ReleaseProof> {
+  return parse<ReleaseProof>(
+    await fetch(`${API_URL}/api/v1/runs/${encodeURIComponent(runId)}/release-proof`, {
       cache: "no-store",
       signal,
     }),

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ReleaseProofView } from "@/components/release-proof";
 import { Availability, StatusBadge } from "@/components/status";
 import { API_URL, cancelRun, getRun } from "@/lib/api";
 import type { Run, Stage } from "@/lib/types";
@@ -370,66 +371,75 @@ function PatchView({ run }: { run: Run }) {
   );
 }
 
-function ProofView({ run }: { run: Run }) {
+function Elapsed({ run }: { run: Run }) {
+  const [now, setNow] = useState(() => Date.now());
+  const active = !run.terminal_state;
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  const end = active ? now : new Date(run.updated_at).getTime();
+  const seconds = Math.max(0, Math.floor((end - new Date(run.created_at).getTime()) / 1000));
   return (
-    <div className="space-y-6">
-      <section className="panel border-t-2 border-t-[var(--ember)] p-7">
-        <p className="eyebrow">Final verdict</p>
-        <div className="mt-4 flex flex-wrap items-center gap-4">
-          <h2 className="mono text-4xl font-semibold">
-            {run.verdict?.value ?? "PROOF IN PROGRESS"}
-          </h2>
-          <StatusBadge
-            label={run.verdict?.value ?? "ACTIVE"}
-            value={
-              run.verdict?.value === "SHIP"
-                ? "SHIP"
-                : run.verdict?.value === "BLOCK"
-                  ? "BLOCK"
-                  : run.terminal_state ?? "ACTIVE"
-            }
-          />
-        </div>
-        <p className="mt-5 max-w-3xl text-sm leading-6 text-[var(--steel-300)]">
-          {run.verdict?.reason ?? "TraceForge has not completed all deterministic proof gates."}
-        </p>
-      </section>
-      <MetricComparison run={run} />
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="panel p-5">
-          <p className="eyebrow mb-4">Proof gates</p>
-          <ul className="space-y-3 text-sm">
-            {[
-              ["Tests pass", run.verification?.tests_passed],
-              ["Telemetry complete", run.verification?.telemetry_complete],
-              ["Identical script digest", run.verification?.same_script_digest],
-            ].map(([label, passed]) => (
-              <li className="flex items-center justify-between gap-3" key={String(label)}>
-                <span className="text-[var(--steel-300)]">{label}</span>
-                <span className={`mono text-xs ${passed ? "text-[var(--green)]" : "text-[var(--steel-500)]"}`}>
-                  {passed ? "PASS" : "PENDING"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="panel p-5">
-          <p className="eyebrow mb-4">Remaining risks</p>
-          {(run.verification?.remaining_risks.length ?? 0) === 0 ? (
-            <p className="text-sm text-[var(--steel-500)]">No remaining risk was recorded.</p>
-          ) : (
-            <ul className="space-y-2 text-sm text-[var(--amber)]">
-              {run.verification?.remaining_risks.map((risk) => <li key={risk}>— {risk}</li>)}
-            </ul>
-          )}
-        </div>
-      </section>
-      <a
-        className="mono inline-flex border border-white/20 px-4 py-3 text-xs text-[var(--paper)] hover:border-[var(--cyan)]"
-        href={`${API_URL}/api/v1/runs/${run.run_id}/report`}
-      >
-        DOWNLOAD EVIDENCE REPORT
-      </a>
+    <span className="mono">
+      {String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}
+    </span>
+  );
+}
+
+function Gate({ label, state }: { label: string; state: "pass" | "fail" | "active" | "pending" }) {
+  const tone = {
+    pass: "text-[var(--green)]",
+    fail: "text-[var(--red)]",
+    active: "text-[var(--ember)]",
+    pending: "text-[var(--steel-500)]",
+  }[state];
+  const text = { pass: "PASS", fail: "FAIL", active: "RUNNING", pending: "PENDING" }[state];
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-xs text-[var(--steel-300)]">{label}</span>
+      <span className={`mono text-[0.66rem] ${tone} ${state === "active" ? "live-pulse" : ""}`}>{text}</span>
+    </div>
+  );
+}
+
+function ExecutionGates({ run }: { run: Run }) {
+  const phaseState = (phase: "baseline" | "candidate" | "patched") => {
+    const experiment = run.experiments[phase];
+    if (!experiment) return run.terminal_state ? "pending" : "active";
+    return experiment.successful ? "pass" : "fail";
+  };
+  const mcpCalls = (["baseline", "candidate", "patched"] as const).reduce(
+    (total, phase) => total + (run.telemetry[phase]?.mcp_invocations.length ?? 0),
+    0,
+  );
+  return (
+    <div className="border-t border-white/10 p-5 lg:border-t-0 lg:border-l">
+      <p className="eyebrow mb-4">Execution gates</p>
+      <div className="space-y-2.5">
+        <Gate label="k6 baseline" state={phaseState("baseline")} />
+        <Gate label="k6 candidate" state={phaseState("candidate")} />
+        <Gate label="k6 patched rerun" state={phaseState("patched")} />
+        <Gate
+          label="Patch audit"
+          state={run.patch_audit ? (run.patch_audit.passed ? "pass" : "fail") : "pending"}
+        />
+        <Gate
+          label="Sandbox verification"
+          state={
+            run.verification
+              ? run.verification.status === "VERIFIED_IMPROVEMENT" ||
+                run.verification.status === "VERIFIED_NO_CHANGE"
+                ? "pass"
+                : "fail"
+              : "pending"
+          }
+        />
+      </div>
+      <p className="mono mt-5 text-[0.62rem] text-[var(--steel-500)]">
+        {mcpCalls} SIGNOZ MCP TOOL CALLS RECORDED
+      </p>
     </div>
   );
 }
@@ -438,7 +448,7 @@ function LiveView({ run, messages }: { run: Run; messages: string[] }) {
   const endpoint = run.load_plan?.endpoint;
   return (
     <div className="space-y-6">
-      <section className="panel grid gap-px bg-white/10 md:grid-cols-3">
+      <section className="panel grid gap-px bg-white/10 md:grid-cols-4">
         <div className="bg-[var(--graphite-900)] p-5">
           <p className="eyebrow">Repository</p>
           <p className="mono mt-2 truncate text-xs text-[var(--steel-300)]" title={run.target.path}>
@@ -457,6 +467,12 @@ function LiveView({ run, messages }: { run: Run; messages: string[] }) {
             {endpoint ? `${endpoint.method} ${endpoint.path}` : "Discovering…"}
           </p>
         </div>
+        <div className="bg-[var(--graphite-900)] p-5">
+          <p className="eyebrow">Elapsed</p>
+          <p className="mt-2 text-xs text-[var(--paper)]">
+            <Elapsed run={run} />
+          </p>
+        </div>
       </section>
       <MetricComparison run={run} />
       <section className="panel">
@@ -467,7 +483,7 @@ function LiveView({ run, messages }: { run: Run; messages: string[] }) {
           </div>
           <StatusBadge value={run.terminal_state ?? "ACTIVE"} />
         </div>
-        <div className="grid lg:grid-cols-[1fr_300px]">
+        <div className="grid lg:grid-cols-[1fr_300px_260px]">
           <div className="min-h-64 p-5">
             <p className="eyebrow mb-4">Run events</p>
             {messages.length === 0 ? (
@@ -501,6 +517,7 @@ function LiveView({ run, messages }: { run: Run; messages: string[] }) {
               })}
             </div>
           </div>
+          <ExecutionGates run={run} />
         </div>
       </section>
     </div>
@@ -566,11 +583,11 @@ export function RunConsole({ runId, initialView = "live" }: { runId: string; ini
 
   const tabs = useMemo(
     () => [
+      ["proof", "Release proof", `/runs/${runId}/proof`],
       ["live", "Live run", `/runs/${runId}`],
       ["evidence", "Evidence", `/runs/${runId}/evidence`],
       ["diagnosis", "Diagnosis", `/runs/${runId}/diagnosis`],
       ["patch", "Patch", `/runs/${runId}/patch`],
-      ["proof", "Proof", `/runs/${runId}/proof`],
     ] as const,
     [runId],
   );
@@ -636,7 +653,7 @@ export function RunConsole({ runId, initialView = "live" }: { runId: string; ini
       {initialView === "evidence" && <EvidenceView run={run} />}
       {initialView === "diagnosis" && <DiagnosisView run={run} />}
       {initialView === "patch" && <PatchView run={run} />}
-      {initialView === "proof" && <ProofView run={run} />}
+      {initialView === "proof" && <ReleaseProofView run={run} />}
     </div>
   );
 }

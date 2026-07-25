@@ -91,7 +91,11 @@ async def create_run(request: RunCreateRequest) -> Any:
 
 
 @router.get("/runs")
-async def list_runs() -> Any:
+async def list_runs(view: str = "full") -> Any:
+    if view == "summary":
+        return engine.store.list_summaries()
+    if view != "full":
+        raise HTTPException(status_code=400, detail="view must be 'full' or 'summary'")
     return engine.store.list()
 
 
@@ -148,6 +152,12 @@ async def run_events(run_id: str, request: Request) -> Any:
 async def run_evidence(run_id: str) -> Any:
     run = get_run(run_id)
     return {"experiments": run.experiments, "telemetry": run.telemetry}
+
+
+@router.get("/runs/{run_id}/release-proof")
+async def run_release_proof(run_id: str) -> Any:
+    get_run(run_id)
+    return engine.release_proof(run_id)
 
 
 @router.get("/runs/{run_id}/diagnosis")
